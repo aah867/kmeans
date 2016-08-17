@@ -44,6 +44,7 @@ kmeans_simd_opt(
 			"perf::PERF_COUNT_HW_CACHE_L1D:MISS",
 			"perf::PERF_COUNT_HW_CACHE_L1D:ACCESS",
 			"perf::PERF_COUNT_HW_CACHE_L1D:PREFETCH",
+			//"perf::PERF_COUNT_HW_CACHE_LL:PREFETCH",
 			"perf::PERF_COUNT_HW_CACHE_L1D:WRITE",
 		};
 
@@ -80,30 +81,78 @@ kmeans_simd_opt(
 
 	#else
 
-//		#ifdef PROFILE_L3_CACHE
+		#ifdef PROFILE_L2_CACHE
 
-		int events[PAPI_EVENTS] = {PAPI_L2_TCM, PAPI_L2_TCA, PAPI_L3_TCM, PAPI_L3_TCA};
-		long long values[PAPI_EVENTS] = {0};
+			int events[PAPI_EVENTS] = {PAPI_L2_TCM, PAPI_L2_TCA, PAPI_L3_TCM, PAPI_L3_TCA};
+			long long values[PAPI_EVENTS] = {0};
 
-		PAPI_library_init(PAPI_VER_CURRENT);
-		if (PAPI_VER_CURRENT != PAPI_library_init(PAPI_VER_CURRENT))
-			cout <<  "PAPI_library_init error.";
+			PAPI_library_init(PAPI_VER_CURRENT);
+			if (PAPI_VER_CURRENT != PAPI_library_init(PAPI_VER_CURRENT))
+				cout <<  "PAPI_library_init error.";
 
-		warmup_cache();
+			warmup_cache();
 
-		if ( PAPI_start_counters(events, PAPI_EVENTS) != PAPI_OK )
-		{
-			cout << "Error in creating eventset" << endl;
-		}
+			if ( PAPI_start_counters(events, PAPI_EVENTS) != PAPI_OK )
+			{
+				cout << "Error in creating eventset" << endl;
+			}
+		#else
+			#ifdef PROFILE_ENERGY
+				energy_counter *e = new energy_counter;
+				FILE* outputf = fopen("profiles.dat", "w+");
+				if (!outputf) fprintf(stderr, "Cannot open output file.\n");
+				initialize(e, outputf);
+				warmup_cache();
+				int d = start_reading(e);
 
+			#else
+				char event_name[NATIVE_EVENTS][BUFSIZ] =
+				{
+					"CYCLE_ACTIVITY:STALLS_LDM_PENDING",
+			        //"perf::LLC-PREFETCHES"
+            	};
+
+				long long values[TOT_EVENTS] = {0};
+				if (PAPI_VER_CURRENT != PAPI_library_init(PAPI_VER_CURRENT))
+					cout << "PAPI_library_init error.";
+
+				int EventSet = PAPI_NULL;
+				int native[TOT_EVENTS];
+
+				if ( PAPI_create_eventset(&EventSet) != PAPI_OK )
+				{
+					cout << "Error in creating eventset !" << endl;
+				}
+
+				for(int i=0; i<NATIVE_EVENTS; i++)
+				{
+					if( PAPI_event_name_to_code(event_name[i], &native[i]) != PAPI_OK )
+						cout << "Error in NAME to CODE" << endl;
+				}
+
+				native[NATIVE_EVENTS] = PAPI_RES_STL;
+				native[NATIVE_EVENTS+1] = PAPI_TOT_CYC;
+
+				if( PAPI_add_events(EventSet, native, TOT_EVENTS) != PAPI_OK )
+				{
+					cout << "Error in Add events !" << endl;
+				}
+
+				warmup_cache();
+
+				if ( PAPI_start(EventSet) != PAPI_OK )
+				{
+					cout << "PAPI error in start" << endl;
+				}
+			#endif
+		#endif
 	#endif
 
 	struct timespec start, end;     // Wall clock time
 	double timeElapsed;
 	clock_gettime(CLOCK_MONOTONIC, &start);
 
-	#endif
-
+#endif
 
 	do
 	{
@@ -286,32 +335,44 @@ kmeans_simd_opt(
 
 	} while(p_err >= KMEANS_T);
 
-	#ifdef __linux__
+#ifdef __linux__
 
-	clock_gettime(CLOCK_MONOTONIC, &end);
-	timeElapsed = timespecDiff(&end, &start);
+clock_gettime(CLOCK_MONOTONIC, &end);
+timeElapsed = timespecDiff(&end, &start);
 
-	#ifdef PROFILE_L1_CACHE
+#ifdef PROFILE_L1_CACHE
+	if(PAPI_stop(EventSet, values) != PAPI_OK)
+		fprintf(stderr, "PAPI error in stop\n");
 
-		if(PAPI_stop(EventSet, values) != PAPI_OK)
-			fprintf(stderr, "PAPI error in stop\n");
-
-		cout.precision(2);
-		cout << "L1:" << fixed << setw(15) << timeElapsed << setw(10) << ((double) values[0]*100)/values[1] << setw(10) << values[0] << setw(10) << values[1] << setw(10) << values[2] << setw(10) << values[3] << setw(10) << values[4];
-		cout << endl;
-
-	#else
-
+	cout.precision(2);
+	cout << "L1:" << fixed << setw(15) << timeElapsed << setw(10) << ((double) values[0]*100)/values[1] << setw(15) << values[0] << setw(15) << values[1] << setw(15) << values[2] << setw(15) << values[3] << setw(20) << values[4];
+	cout << endl;
+#else
+	#ifdef PROFILE_L2_CACHE
 		if(PAPI_stop_counters(values, PAPI_EVENTS) != PAPI_OK)
 			fprintf(stderr, "PAPI error in stop\n");
 		cout.precision(2);
 		cout << "L2:" << fixed << setw(15) << timeElapsed << setw(8) << ((double)values[0]*100)/values[1] << setw(8) << ((double)values[2]*100)/values[3] << setw(15) << values[0] << setw(15) << values[1];
-		cout<< setw(15) << values[2] << setw(15) <<  values[3];
+		cout<< setw(15) << values[2] << setw(25) <<  values[3];
 		cout << endl;
-
+	#else
+		#ifdef PROFILE_ENERGY
+			d = stop_reading(e);
+			estimate_energy(e);
+			cout.precision(2);
+			cout << "E:" << fixed << setw(15) << timeElapsed << setw(15) << e->core_energy << setw(15) << e->package_energy;
+			cout << endl;
+			finalize(e);
+		#else
+			if(PAPI_stop(EventSet, values) != PAPI_OK)
+				fprintf(stderr, "PAPI error in stop\n");
+			cout.precision(2);
+			cout << "I:" << fixed << setw(15) << timeElapsed << setw(15) << values[0] << setw(15) << values[1] << setw(20) << values[2];
+			cout << endl;
+		#endif
 	#endif
-
-	#endif
+#endif
+#endif
 
 	_mm_free(counts);
 	_mm_free(c1);

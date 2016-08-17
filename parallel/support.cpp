@@ -202,6 +202,21 @@ long add_simd_int(simd_int vec)
 	return sum;
 }
 
+int32_t
+simd_horizontal_add(simd_int vec)
+{
+	int32_t sum[4];
+	simd_int mm_a = vec;
+	simd_int mm_b = _mm_shuffle_epi32(mm_a, 0x39);
+	mm_b = simd_add_i(mm_a, mm_b);
+	mm_a = _mm_shuffle_epi32(mm_b, 0x3E);
+	mm_b = simd_add_i(mm_a, mm_b);
+
+	simd_storeu_i((simd_int*) sum, mm_b);
+
+	return sum[0];
+}
+
 #if __linux__
 long long add_simd256_int(__m256i vec)
 {

@@ -14,7 +14,9 @@ else
 #   for debugging
 #   CFLAGS = -g -Wall -O0 -msse3 -std=c++0x -fopenmp -DDEBUG
 #   without vectorization    
-    CFLAGS = -O3 -no-vec -std=c++0x -fopenmp -DPROFILE_L1_CACHE
+#    CFLAGS = -O3 -std=c++0x -fopenmp -DPROFIILE_INSTRUCTION
+    CFLAGS = -O3 -std=c++0x -fopenmp -DPROFIILE_L1_CACHE
+#    CFLAGS = -O3 -no-vec -std=c++0x -fopenmp -DPROFILE_L2_CACHE
 #   with auto-vectorization
 #   CFLAGS = -O3 -msse3 -std=c++0x -fopenmp 
 
@@ -42,13 +44,13 @@ default: $(SCALAR_EXEC) $(SIMD_OPT_EXEC) $(SIMD_BASIC_EXEC)
 	$(CC) $(INCLUDES) $(CFLAGS) -c $< -o $@
 
 $(SCALAR_EXEC):$(SCALAR_OBJ)
-	$(CC) $(CFLAGS) -o $(SCALAR_EXEC) $(SCALAR_OBJ) $(LIBS) -lrt /home/abdullah/lib/libpapi.a
+	$(CC) $(CFLAGS) -o $(SCALAR_EXEC) $(SCALAR_OBJ) $(LIBS) -lrt /home/abdullah/lib/libpapi.a -lenergy
 
 $(SIMD_BASIC_EXEC):$(SIMD_BASIC_OBJ)
-	$(CC) $(CFLAGS) -o $(SIMD_BASIC_EXEC) $(SIMD_BASIC_OBJ) $(LIBS) -lrt /home/abdullah/lib/libpapi.a
+	$(CC) $(CFLAGS) -o $(SIMD_BASIC_EXEC) $(SIMD_BASIC_OBJ) $(LIBS) -lrt /home/abdullah/lib/libpapi.a -lenergy
 
 $(SIMD_OPT_EXEC):$(SIMD_OPT_OBJ)
-	$(CC) $(CFLAGS) -o $(SIMD_OPT_EXEC) $(SIMD_OPT_OBJ) $(LIBS) -lrt /home/abdullah/lib/libpapi.a
+	$(CC) $(CFLAGS) -o $(SIMD_OPT_EXEC) $(SIMD_OPT_OBJ) $(LIBS) -lrt /home/abdullah/lib/libpapi.a -lenergy
 
 run:
 	make clean
