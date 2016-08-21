@@ -25,13 +25,13 @@
 #include <time.h>
 #ifdef __linux__
 #include <omp.h>
+#include <energy_estimator.h>
 #endif
 
 using namespace std;
 
-
-#define DEBUG_RESULT
 #if 0
+#define DEBUG_RESULT
 #define DEBUG_ERROR
 #define DEBUG_DISTANCE
 #define DEBUG_COUNTS
@@ -47,7 +47,7 @@ double timespecDiff(struct timespec *timeA_p, struct timespec *timeB_p);
 //#define USE_LOOKUP
 #define NUM_THREADS 2
 
-#define DATASET_640
+#define DATASET_160
 
 #ifdef DATASET_16
 	#define DATA_SIZE 16 //16
@@ -67,20 +67,32 @@ double timespecDiff(struct timespec *timeA_p, struct timespec *timeB_p);
 
 #ifdef PROFILE_L1_CACHE
 
-#define TOT_EVENTS 5
-#define NATIVE_EVENTS 4
-#define PAPI_EVENTS 1
+	#define TOT_EVENTS 5
+	#define NATIVE_EVENTS 4
+	#define PAPI_EVENTS 1
 
 #else
 
-#define PAPI_EVENTS 4
-
+	#ifdef PROFILE_L2_CACHE
+		#define PAPI_EVENTS 4
+	#else
+		#ifdef PROFILE_ENERGY
+			#define TOT_EVENTS 1
+			#define NATIVE_EVENTS 1
+			#define PAPI_EVENTS 0
+		#else
+			#define TOT_EVENTS 3
+			#define NATIVE_EVENTS 1
+			#define PAPI_EVENTS 2
+		#endif
+	#endif
 #endif
 
 #define KMEANS_T 0.01		// error tolerance
 
 typedef int32_t data_t;
 typedef int32_t simd_data_t;
+typedef int16_t comp_ds_t;
 
 void
 load_initial_clusters(
@@ -92,6 +104,12 @@ void
 load_simd_data(
 		simd_data_t* simd_data,
 		data_t* data,
+		unsigned long N);
+
+void
+load_comp_data(
+		comp_ds_t* comp_data,
+		simd_data_t* simd_data,
 		unsigned long N);
 
 void
@@ -133,6 +151,7 @@ void
 load_simd_lookup(simd_data_t *simd_centroids, int num_clusters, int32_t *lookup);
 
 simd_int horizontal_add(simd_int vec);
+int32_t simd_horizontal_add(simd_int vec);
 
 long add_simd_int(simd_int vec);
 

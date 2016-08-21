@@ -298,6 +298,24 @@ load_simd_data(
 }
 
 void
+load_comp_data(
+		comp_ds_t* comp_data,
+		simd_data_t* simd_data,
+		unsigned long N)
+{
+	for(int i=0; i<N*DIMENSION; i++)
+	{
+		comp_data[i] = (comp_ds_t) simd_data[i];
+		int32_t tmp_data = (int32_t) comp_data[i];
+		if(tmp_data != (simd_data[i]))
+		{
+			cout << "ERROR: " << tmp_data << " != " << simd_data[i] << endl;
+			exit(0);
+		}
+	}
+}
+
+void
 load_initial_simd_clusters(
 		simd_data_t * centroids,
 		int num_clusters,

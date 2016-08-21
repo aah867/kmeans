@@ -21,9 +21,133 @@ using namespace std;
 int32_t tmp_min_distance[DATA_SIZE];
 #endif
 
+#if 0
 int
-kmeans_simd_opt(
-		const simd_data_t * const __restrict__ ts_data,
+test_kmeans_simd_cmp(
+		const comp_ds_t * const __restrict__ ts_data,
+		unsigned long const ts_length,
+		simd_data_t* __restrict__ c,
+		int const num_clusters)
+{
+	int ctr=0;
+	int32_t p_err;
+	long long old_error=0, error=0;
+	int32_t labels[ts_length];
+	int32_t * const counts = (int32_t*) _mm_malloc(num_clusters*sizeof(int32_t), ALIGN);
+	simd_data_t * const c1 = (simd_data_t*) _mm_malloc((num_clusters*DIMENSION)*sizeof(simd_data_t), ALIGN);
+
+	do
+	{
+		memset(labels, 0, (ts_length)*sizeof(int32_t));
+		memset(counts, 0, num_clusters*sizeof(int32_t));
+		memset(c1, 0, (num_clusters*DIMENSION)*sizeof(simd_data_t));
+		old_error = error, error = 0;
+
+		simd_int mm_error = simd_set_zero();
+
+		int i;
+		for(i=0; i<ts_length; i+=VECSIZE32)
+		{
+			simd_int mm_min_distance = simd_set1_i(INT_MAX);
+			simd_int mm_minlabels = _mm_setr_epi32(0,1,2,3);
+			cout << endl << "********************" << endl;
+			for(int j=0; j<num_clusters; j+=VECSIZE32)
+			{
+				simd_int mm_d1 = simd_set_zero();
+				simd_int mm_d2 = simd_set_zero();
+				simd_int mm_d3 = simd_set_zero();
+				simd_int mm_d4 = simd_set_zero();
+				simd_int mm_l1 = _mm_setr_epi32(j, j+1, j+2, j+3);
+
+				for(int k=0; k<DIMENSION; k += 2)
+				{
+#if 1
+					simd_int mm_cmp_data = simd_loadu_i((simd_int const*) &ts_data[i*DIMENSION+k*VECSIZE32]);
+					// Extract low-order bits of compressed data
+					simd_int mm_data = _mm_cvtepi16_epi32(mm_cmp_data);
+					print_simd_reg(mm_data);
+
+					simd_int mm_c = simd_loadu_i((simd_int const*) &c[j*DIMENSION+k*VECSIZE32]);
+					print_simd_reg(mm_c);
+					simd_int mm_u = _mm_srli_epi32(simd_mul_lo(mm_c, mm_c), 0x01);
+					print_simd_reg(mm_u);
+
+					// Extract high-order bits of compressed data
+					simd_int mm_data2 = _mm_cvtepi16_epi32(_mm_bsrli_si128(mm_cmp_data, 8));
+					print_simd_reg(mm_data2);
+
+					mm_c = simd_loadu_i((simd_int const*) &c[j*DIMENSION+k*VECSIZE32 + VECSIZE32]);
+					print_simd_reg(mm_c);
+					mm_u = _mm_srli_epi32(simd_mul_lo(mm_c, mm_c), 0x01);
+					print_simd_reg(mm_u);
+#else
+					simd_int mm_cmp_data = simd_loadu_i((simd_int const*) &ts_data[i*DIMENSION+k*VECSIZE32]);
+
+					for(int jj=0; jj<2; jj++)
+					{
+						simd_int mm_data = _mm_cvtepi16_epi32(mm_cmp_data);
+						print_simd_reg(mm_data);
+						mm_cmp_data = _mm_bsrli_si128(mm_cmp_data, 8);
+
+						simd_int mm_c = simd_loadu_i((simd_int const*) &c[j*DIMENSION+k*VECSIZE32]);
+						print_simd_reg(mm_c);
+						simd_int mm_u = _mm_srli_epi32(simd_mul_lo(mm_c, mm_c), 0x01);
+						print_simd_reg(mm_u);
+
+					}
+#endif
+
+				}
+			}
+		}
+
+		for(int i=0; i<ts_length; i+=VECSIZE32)
+		{
+			for(int ll=0; ll <VECSIZE32; ll++)
+			{
+				counts[labels[i+ll]]++;
+				int B=labels[i+ll]/VECSIZE32;
+				int C=labels[i+ll]%VECSIZE32;
+
+				for(int kk=0; kk<DIMENSION; kk++)
+				{
+					c1[B*VECSIZE32*DIMENSION + kk*VECSIZE32 + C] += ts_data[i*DIMENSION + kk*VECSIZE32 + ll];
+				}
+			}
+		}
+
+		int limit = num_clusters/VECSIZE32;
+		for(int pp=0; pp<limit; pp++)
+		{
+			for(int ll=0, B=pp*VECSIZE32; ll <VECSIZE32; ll++)
+			{
+				if(counts[B+ll] > 0)
+					for(int kk=0, C=pp*DIMENSION*VECSIZE32+ll; kk<DIMENSION; kk++)
+						c[C + kk*VECSIZE32] = c1[C + kk*VECSIZE32]/counts[B+ll];
+				else
+					for(int kk=0, C=pp*DIMENSION*VECSIZE32+ll; kk<DIMENSION; kk++)
+						c[C + kk*VECSIZE32] = c1[C + kk*VECSIZE32];
+			}
+		}
+
+		error = add_simd_int(mm_error);
+		p_err = ((error-old_error)*100)/error;
+		if(p_err < 0)
+			p_err = p_err *(-1);
+		ctr++;
+
+	} while(p_err >= KMEANS_T);
+
+	_mm_free(counts);
+	_mm_free(c1);
+
+	return ctr;
+}
+#endif
+
+int
+kmeans_simd_cmp(
+		const comp_ds_t * const __restrict__ ts_data,
 		unsigned long const ts_length,
 		simd_data_t* __restrict__ c,
 		int const num_clusters)
@@ -175,6 +299,7 @@ kmeans_simd_opt(
 		for(i=0; i<ts_length; i+=VECSIZE32)
 		{
 			simd_int mm_min_distance = simd_set1_i(INT_MAX);
+			simd_int mm_min_distance2 = simd_set1_i(INT_MAX);
 			simd_int mm_minlabels = _mm_setr_epi32(0,1,2,3);
 
 			for(int j=0; j<num_clusters; j+=VECSIZE32)
@@ -185,16 +310,40 @@ kmeans_simd_opt(
 				simd_int mm_d4 = simd_set_zero();
 				simd_int mm_l1 = _mm_setr_epi32(j, j+1, j+2, j+3);
 				
-				for(int k=0; k<DIMENSION; k++)
+				for(int k=0; k<DIMENSION; k += 2)
 				{
-					simd_int mm_data = simd_loadu_i((simd_int const*) &ts_data[i*DIMENSION+k*VECSIZE32]);
+					simd_int mm_cmp_data = simd_loadu_i((simd_int const*) &ts_data[i*DIMENSION+k*VECSIZE32]);
 
+					simd_int mm_data = _mm_cvtepi16_epi32(mm_cmp_data);
 					simd_int mm_c = simd_loadu_i((simd_int const*) &c[j*DIMENSION+k*VECSIZE32]);
 					#ifdef USE_LOOKUP
 					simd_int mm_u = simd_loadu_i((simd_int const*) &simd_lookup[j*DIMENSION+k*VECSIZE32]);
 					#else
 					simd_int mm_u = _mm_srli_epi32(simd_mul_lo(mm_c, mm_c), 0x01);
 					#endif
+
+					mm_d1 = simd_add_i(mm_d1, simd_sub_i(mm_u, simd_mul_lo(mm_data, mm_c)));
+
+					mm_c = _mm_shuffle_epi32(mm_c, 0x39);
+					mm_u = _mm_shuffle_epi32(mm_u, 0x39);
+					mm_d2 = simd_add_i(mm_d2, simd_sub_i(mm_u, simd_mul_lo(mm_data, mm_c)));
+
+					mm_c = _mm_shuffle_epi32(mm_c, 0x39);
+					mm_u = _mm_shuffle_epi32(mm_u, 0x39);
+					mm_d3 = simd_add_i(mm_d3, simd_sub_i(mm_u, simd_mul_lo(mm_data, mm_c)));
+
+					mm_c = _mm_shuffle_epi32(mm_c, 0x39);
+					mm_u = _mm_shuffle_epi32(mm_u, 0x39);
+					mm_d4 = simd_add_i(mm_d4, simd_sub_i(mm_u, simd_mul_lo(mm_data, mm_c)));
+
+					mm_data = _mm_cvtepi16_epi32(_mm_bsrli_si128(mm_cmp_data, 8));
+					mm_c = simd_loadu_i((simd_int const*) &c[j*DIMENSION+k*VECSIZE32+VECSIZE32]);
+					#ifdef USE_LOOKUP
+					mm_u = simd_loadu_i((simd_int const*) &simd_lookup[j*DIMENSION+k*VECSIZE32+VECSIZE32]);
+					#else
+					mm_u = _mm_srli_epi32(simd_mul_lo(mm_c, mm_c), 0x01);
+					#endif
+
 					mm_d1 = simd_add_i(mm_d1, simd_sub_i(mm_u, simd_mul_lo(mm_data, mm_c)));
 
 					mm_c = _mm_shuffle_epi32(mm_c, 0x39);
@@ -210,6 +359,7 @@ kmeans_simd_opt(
 					mm_d4 = simd_add_i(mm_d4, simd_sub_i(mm_u, simd_mul_lo(mm_data, mm_c)));
 
 					//_mm_clevict((void const*) &ts_data[i*DIMENSION+k*VECSIZE32], 0);
+					//_mm_prefetch((const char *) &ts_data[(i+1)*DIMENSION + (k+2)*VECSIZE32], _MM_HINT_T1);
 				}
 
 				#ifdef DEBUG_DISTANCE
@@ -243,7 +393,10 @@ kmeans_simd_opt(
 				mm_min_distance = _mm_or_si128(_mm_and_si128(mm_mask, mm_d4), _mm_andnot_si128(mm_mask, mm_min_distance));
 				mm_minlabels = _mm_or_si128(_mm_and_si128(mm_mask, mm_l4), _mm_andnot_si128(mm_mask, mm_minlabels));
 
-				_mm_prefetch((const char *) &ts_data[(i+1)*DIMENSION], _MM_HINT_NTA);
+				//_mm_prefetch((const char *) &ts_data[(i+1)*DIMENSION], _MM_HINT_NTA);
+				//_mm_prefetch((const char *) &ts_data[(i+1)*DIMENSION], _MM_HINT_T0);
+				//_mm_prefetch((const char *) &ts_data[(i+2)*DIMENSION], _MM_HINT_T1);
+				//_mm_prefetch((const char *) &ts_data[(i+1)*DIMENSION], _MM_HINT_T2);
 			}
 
 			#pragma omp critical
@@ -413,13 +566,17 @@ int main()
 	simd_data_t *simd_data = (simd_data_t*) _mm_malloc((DATA_SIZE*DIMENSION)*sizeof(simd_data_t), ALIGN);
 	load_simd_data(simd_data, data, DATA_SIZE);
 
+	comp_ds_t *comp_data = (comp_ds_t *) _mm_malloc((DATA_SIZE*DIMENSION)*sizeof(comp_ds_t), ALIGN);
+	load_comp_data(comp_data, simd_data, DATA_SIZE);
+
 	simd_data_t *simd_centroids = (simd_data_t*) _mm_malloc((CLUSTER_SIZE*DIMENSION)*sizeof(simd_data_t), ALIGN);
 	load_initial_simd_clusters(simd_centroids, CLUSTER_SIZE, data);
+
 	#ifdef USE_LOOKUP
 	load_simd_lookup(simd_centroids, CLUSTER_SIZE, simd_lookup);
 	#endif
 
-	int ctr = kmeans_simd_opt(simd_data, DATA_SIZE, simd_centroids, CLUSTER_SIZE);
+	int ctr = kmeans_simd_cmp(comp_data, DATA_SIZE, simd_centroids, CLUSTER_SIZE);
 
 	#ifdef DEBUG_RESULT
 	cout << "SIMD RESULT:" << ctr << endl;
@@ -430,6 +587,8 @@ int main()
 
 	_mm_free(simd_centroids);
 	_mm_free(simd_data);
+	_mm_free(comp_data);
+
 	free(data);
 	free(centroids);
 
